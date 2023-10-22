@@ -90,6 +90,10 @@ def main():
             for pdf_filename in os.listdir(pdf_directory):
                 if pdf_filename.endswith(".pdf"):
                     pdf_path = os.path.join(pdf_directory, pdf_filename)
+                    
+                    # Update the spinner message with the current PDF file being processed
+                    st.text("Processing: " + pdf_filename)
+                    
                     with open(pdf_path, "rb") as pdf_file:
                         pdf_reader = PdfReader(pdf_file)
                         for page in pdf_reader.pages:
