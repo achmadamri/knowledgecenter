@@ -1,4 +1,5 @@
 import streamlit as st
+import os
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
@@ -64,6 +65,10 @@ def handle_userinput(user_question):
                 "{{MSG}}", message.content), unsafe_allow_html=True)
 
 
+# Define the path to the directory containing preprocessed PDFs on your server
+pdf_directory = "pdf"
+
+
 def main():
     load_dotenv()
     st.set_page_config(page_title="Knowledge Center",
@@ -77,17 +82,18 @@ def main():
 
     st.header("Knowledge Center :books:")
     user_question = st.text_input("Ask a question:")
-    if user_question:
-        handle_userinput(user_question)
 
-    with st.sidebar:
-        st.subheader("Your documents")
-        pdf_docs = st.file_uploader(
-            "Upload your PDFs for knowledge data click on Process", accept_multiple_files=True)
-        if st.button("Process"):
-            with st.spinner("Processing"):
-                # get pdf text
-                raw_text = get_pdf_text(pdf_docs)
+    # Process the preprocessed PDFs when the web app starts
+    if st.session_state.conversation is None:
+        with st.spinner("Processing preprocessed PDFs"):
+            raw_text = ""  # Initialize an empty string to store the concatenated text
+            for pdf_filename in os.listdir(pdf_directory):
+                if pdf_filename.endswith(".pdf"):
+                    pdf_path = os.path.join(pdf_directory, pdf_filename)
+                    with open(pdf_path, "rb") as pdf_file:
+                        pdf_reader = PdfReader(pdf_file)
+                        for page in pdf_reader.pages:
+                            raw_text += page.extract_text()
 
                 # get the text chunks
                 text_chunks = get_text_chunks(raw_text)
@@ -98,6 +104,13 @@ def main():
                 # create conversation chain
                 st.session_state.conversation = get_conversation_chain(
                     vectorstore)
+
+    if user_question:
+        handle_userinput(user_question)
+
+    with st.sidebar:
+        # You can add any additional options or widgets here
+        pass
 
 
 if __name__ == '__main__':
