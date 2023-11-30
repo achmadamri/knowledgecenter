@@ -1,21 +1,34 @@
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List
 import os
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings
+from langchain.embeddings import OpenAIEmbeddings, HuggingFaceInstructEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 
 app = FastAPI()
-templates = Jinja2Templates(directory="templates")
+
+class UserQuestion(BaseModel):
+    question: str
+
+class Message(BaseModel):
+    content: str
+
+class ConversationResponse(BaseModel):
+    chat_history: List[Message]
 
 pdf_directory = "pdf"
 
+load_dotenv()
+
+# Initialize these variables outside the endpoint to persist state across requests
+conversation_chain = None
+chat_history = None
 
 def get_pdf_text(pdf_docs):
     text = ""
@@ -24,7 +37,6 @@ def get_pdf_text(pdf_docs):
         for page in pdf_reader.pages:
             text += page.extract_text()
     return text
-
 
 def get_text_chunks(text):
     text_splitter = CharacterTextSplitter(
@@ -36,17 +48,14 @@ def get_text_chunks(text):
     chunks = text_splitter.split_text(text)
     return chunks
 
-
 def get_vectorstore(text_chunks):
     embeddings = OpenAIEmbeddings()
     vectorstore = FAISS.from_texts(texts=text_chunks, embedding=embeddings)
     return vectorstore
 
-
 def get_conversation_chain(vectorstore):
     llm = ChatOpenAI()
-    memory = ConversationBufferMemory(
-        memory_key='chat_history', return_messages=True)
+    memory = ConversationBufferMemory(memory_key='chat_history', return_messages=True)
     conversation_chain = ConversationalRetrievalChain.from_llm(
         llm=llm,
         retriever=vectorstore.as_retriever(),
@@ -54,26 +63,7 @@ def get_conversation_chain(vectorstore):
     )
     return conversation_chain
 
-
-async def handle_userinput(user_question):
-    response = await app.state.conversation({'question': user_question})
-    app.state.chat_history = response['chat_history']
-
-    messages = []
-    for i, message in enumerate(app.state.chat_history):
-        if i % 2 == 0:
-            messages.append(user_template.replace("{{MSG}}", message.content))
-        else:
-            messages.append(bot_template.replace("{{MSG}}", message.content))
-    return messages
-
-
-@app.on_event("startup")
-async def startup_event():
-    load_dotenv()
-    app.state.conversation = None
-    app.state.chat_history = None
-
+def initialize_app():
     raw_text = ""
     for pdf_filename in os.listdir(pdf_directory):
         if pdf_filename.endswith(".pdf"):
@@ -82,25 +72,17 @@ async def startup_event():
                 pdf_reader = PdfReader(pdf_file)
                 for page in pdf_reader.pages:
                     raw_text += page.extract_text()
-
+    
     text_chunks = get_text_chunks(raw_text)
     vectorstore = get_vectorstore(text_chunks)
-    app.state.conversation = get_conversation_chain(vectorstore)
+    return get_conversation_chain(vectorstore)
 
+@app.post("/ask-question", response_model=ConversationResponse)
+async def ask_question(user_question: UserQuestion):
+    global conversation_chain, chat_history
+    if conversation_chain is None:
+        conversation_chain = initialize_app()
 
-@app.get("/", response_class=HTMLResponse)
-async def read_main(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-
-@app.post("/ask_question/{user_question}", response_class=HTMLResponse)
-async def ask_question(user_question: str):
-    messages = await handle_userinput(user_question)
-    html_response = "".join(messages)
-    return HTMLResponse(content=html_response, status_code=200)
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    response = conversation_chain({'question': user_question.question})
+    chat_history = response['chat_history']
+    return {"chat_history": chat_history}
