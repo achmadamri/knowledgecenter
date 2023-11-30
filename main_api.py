@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
@@ -13,6 +14,10 @@ from langchain.chains import ConversationalRetrievalChain
 
 app = FastAPI()
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 class UserQuestion(BaseModel):
     user_id: str
     question: str
@@ -23,7 +28,6 @@ class Message(BaseModel):
 class ConversationResponse(BaseModel):
     chat_history: List[Message]
     api_calls: int
-    tokens_used: int
 
 pdf_directory = "pdf"
 load_dotenv()
@@ -93,7 +97,8 @@ async def ask_question(user_question: UserQuestion):
     # Update API calls counter
     api_calls_counter[user_id] = api_calls_counter.get(user_id, 0) + 1
 
-    # Extract tokens used information from the API response
-    response = response['usage']['total_tokens']
+    # Log information to the console
+    logger.info(f"User {user_id} asked a question. API calls: {api_calls_counter[user_id]}, response: {response}")
 
-    return {"chat_history": chat_history, "api_calls": api_calls_counter[user_id], "response": response}
+    return {"chat_history": chat_history, "api_calls": api_calls_counter[user_id]}
+
