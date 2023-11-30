@@ -5,7 +5,7 @@ import os
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings, HuggingFaceInstructEmbeddings
+from langchain.embeddings import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
@@ -14,6 +14,7 @@ from langchain.chains import ConversationalRetrievalChain
 app = FastAPI()
 
 class UserQuestion(BaseModel):
+    user_id: str
     question: str
 
 class Message(BaseModel):
@@ -23,12 +24,10 @@ class ConversationResponse(BaseModel):
     chat_history: List[Message]
 
 pdf_directory = "pdf"
-
 load_dotenv()
 
 # Initialize these variables outside the endpoint to persist state across requests
-conversation_chain = None
-chat_history = None
+user_sessions = {}
 
 def get_pdf_text(pdf_docs):
     text = ""
@@ -63,7 +62,7 @@ def get_conversation_chain(vectorstore):
     )
     return conversation_chain
 
-def initialize_app():
+def initialize_user(user_id):
     raw_text = ""
     for pdf_filename in os.listdir(pdf_directory):
         if pdf_filename.endswith(".pdf"):
@@ -72,17 +71,19 @@ def initialize_app():
                 pdf_reader = PdfReader(pdf_file)
                 for page in pdf_reader.pages:
                     raw_text += page.extract_text()
-    
+
     text_chunks = get_text_chunks(raw_text)
     vectorstore = get_vectorstore(text_chunks)
     return get_conversation_chain(vectorstore)
 
 @app.post("/ask-question", response_model=ConversationResponse)
 async def ask_question(user_question: UserQuestion):
-    global conversation_chain, chat_history
-    if conversation_chain is None:
-        conversation_chain = initialize_app()
+    global user_sessions
+    user_id = user_question.user_id
+    if user_id not in user_sessions:
+        user_sessions[user_id] = initialize_user(user_id)
 
+    conversation_chain = user_sessions[user_id]
     response = conversation_chain({'question': user_question.question})
     chat_history = response['chat_history']
     return {"chat_history": chat_history}
