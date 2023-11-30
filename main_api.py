@@ -22,12 +22,14 @@ class Message(BaseModel):
 
 class ConversationResponse(BaseModel):
     chat_history: List[Message]
+    api_calls: int
 
 pdf_directory = "pdf"
 load_dotenv()
 
 # Initialize these variables outside the endpoint to persist state across requests
 user_sessions = {}
+api_calls_counter = {}
 
 def get_pdf_text(pdf_docs):
     text = ""
@@ -78,7 +80,7 @@ def initialize_user(user_id):
 
 @app.post("/ask-question", response_model=ConversationResponse)
 async def ask_question(user_question: UserQuestion):
-    global user_sessions
+    global user_sessions, api_calls_counter
     user_id = user_question.user_id
     if user_id not in user_sessions:
         user_sessions[user_id] = initialize_user(user_id)
@@ -86,4 +88,8 @@ async def ask_question(user_question: UserQuestion):
     conversation_chain = user_sessions[user_id]
     response = conversation_chain({'question': user_question.question})
     chat_history = response['chat_history']
-    return {"chat_history": chat_history}
+
+    # Update API calls counter
+    api_calls_counter[user_id] = api_calls_counter.get(user_id, 0) + 1
+
+    return {"chat_history": chat_history, "api_calls": api_calls_counter[user_id]}
