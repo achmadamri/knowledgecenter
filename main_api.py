@@ -23,6 +23,7 @@ class Message(BaseModel):
 class ConversationResponse(BaseModel):
     chat_history: List[Message]
     api_calls: int
+    tokens_used: int
 
 pdf_directory = "pdf"
 load_dotenv()
@@ -92,4 +93,7 @@ async def ask_question(user_question: UserQuestion):
     # Update API calls counter
     api_calls_counter[user_id] = api_calls_counter.get(user_id, 0) + 1
 
-    return {"chat_history": chat_history, "api_calls": api_calls_counter[user_id]}
+    # Extract tokens used information from the API response
+    response = response['usage']['total_tokens']
+
+    return {"chat_history": chat_history, "api_calls": api_calls_counter[user_id], "response": response}
